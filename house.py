@@ -18,7 +18,7 @@ if __name__ == '__main__':
 
     # 清除数据
     save = saveData(config)
-    save.deleteOldData()
+    # save.deleteOldData()
 
     # 贝壳找房 （例：北京、通州 251-499万 80-100平） 根据自己需求添加链接
     beike1 = getHtml('''https://bj.ke.com/ershoufang/tongzhou/co32ba80ea100bp251ep499/''')

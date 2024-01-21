@@ -2,7 +2,8 @@
 
 import configparser
 import time
-
+import pymysql
+import warnings
 from .beike import BeikeParser
 from .anjuke import AnjukeParser
 from .ganji import GanjiParser
@@ -17,67 +18,34 @@ class saveData():
 
     def __init__(self, config):
         self._config = config
+        self.key_password_dict = {}
+        self._get_user_password()
         pass
 
-    # 清除leancloud数据
-    def _delete_leancloud(self):
-        import leancloud
-        # 初始化leancloud
-        leancloud.init(self._config['leancloud']['appid'], self._config['leancloud']['appkey'])
-        # 开启日志
-        # logging.basicConfig(level=logging.DEBUG)
-        timestring = time.strftime('%Y%m%d%H', time.localtime(time.time()))
-        tablename = 'T' + timestring + 'TheFutureOfHome'
-        TestObject = leancloud.Object.extend(tablename)
-        test_object = TestObject()
-        test_object.destroy()
-
-    # 保存到leancloud
-    def _save_leancloud(self, webName, houseName, villageName, houseNote, houseTotlePrice, houseUnitPrice, houseLink,
-                        houseImg, followNum):
-        import leancloud
-        # 初始化leancloud
-        leancloud.init(self._config['leancloud']['appid'], self._config['leancloud']['appkey'])
-        # 开启日志
-        # logging.basicConfig(level=logging.DEBUG)
-        timestring = time.strftime('%Y%m%d%H', time.localtime(time.time()))
-        # timestring = "2021090510"
-        tablename = 'T' + timestring + 'TheFutureOfHome'
-        TestObject = leancloud.Object.extend(tablename)
-        for i in range(0, len(houseName)):
-            test_object = TestObject()
-            test_object.set('webName', webName)
-            test_object.set('houseName', houseName[i])
-            test_object.set('villageName', villageName[i])
-            test_object.set('houseNote', houseNote[i])
-            test_object.set('houseTotlePrice', houseTotlePrice[i])
-            test_object.set('houseUnitPrice', houseUnitPrice[i])
-            test_object.set('houseLink', houseLink[i])
-            test_object.set('houseImg', houseImg[i])
-            test_object.set('followNum', followNum[i])
-            try:
-                test_object.save()
-            except Exception as e:
-                print(e)
-                print(
-                    "webName:%s\nhouseName:%s\nvillageName:%s\nhouseNote:%s\nhouseTotlePrice:%s\nhouseUnitPrice:%s\nhouseLink:%s\nhouseImg:%s\nfollowNum:%s\n" % (
-                        webName, houseName, villageName, houseNote, houseTotlePrice, houseUnitPrice, houseLink,
-                        houseImg, followNum))
-        print(webName + ' saved ' + str(len(houseName)) + ' rows.')
+    def _get_user_password(self):
+        file_path = "/root/Software/Config/mysql_password.txt"
+        f = open(file_path, "r")
+        for x in f:
+            key_password_pair = x.strip().split(":")
+            self.key_password_dict[key_password_pair[0]] = key_password_pair[1]
+        return
 
     # 清理mysql数据
     def _delete_mysql(self):
-        import pymysql
         # 用于忽略表已存在的警告
-        import warnings
         warnings.filterwarnings("ignore")
-        host = self._config.get('mysql', 'host')
-        port = self._config.getint('mysql', 'port')
-        user = self._config.get('mysql', 'user')
-        passwd = self._config.get('mysql', 'passwd')
-        db = self._config.get('mysql', 'db')
+        # host = self._config.get('mysql', 'host')
+        # port = self._config.getint('mysql', 'port')
+        # user = self._config.get('mysql', 'user')
+        # passwd = self._config.get('mysql', 'passwd')
+        # db = self._config.get('mysql', 'db')
+        host = self.key_password_dict['host']
+        port = self.key_password_dict['port']
+        user = self.key_password_dict['user']
+        passwd = self.key_password_dict['passwd']
+        database = self.key_password_dict['database']
 
-        conn = pymysql.connect(host=host, port=port, user=user, passwd=passwd, db=db, charset='utf8')
+        conn = pymysql.connect(host=host, port=port, user=user, passwd=passwd, db=database, charset='utf8')
         cursor = conn.cursor()
         timestring = time.strftime('%Y%m%d%H', time.localtime(time.time()))
         tablename = 'T' + timestring + 'TheFutureOfHome'
@@ -96,17 +64,21 @@ class saveData():
         # 用于忽略表已存在的警告
         import warnings
         warnings.filterwarnings("ignore")
-        host = self._config.get('mysql', 'host')
-        port = self._config.getint('mysql', 'port')
-        user = self._config.get('mysql', 'user')
-        passwd = self._config.get('mysql', 'passwd')
-        db = self._config.get('mysql', 'db')
+        # host = self._config.get('mysql', 'host')
+        # port = self._config.getint('mysql', 'port')
+        # user = self._config.get('mysql', 'user')
+        # passwd = self._config.get('mysql', 'passwd')
+        # db = self._config.get('mysql', 'db')
+        host = self.key_password_dict['host']
+        port = self.key_password_dict['port']
+        user = self.key_password_dict['user']
+        passwd = self.key_password_dict['passwd']
+        database = self.key_password_dict['database']
 
-        conn = pymysql.connect(host=host, port=port, user=user, passwd=passwd, db=db, charset='utf8')
+        conn = pymysql.connect(host=host, port=port, user=user, passwd=passwd, db=database, charset='utf8')
         cursor = conn.cursor()
 
-        timestring = time.strftime('%Y%m%d%H', time.localtime(time.time()))
-        tablename = 'T' + timestring + 'TheFutureOfHome'
+        tablename = 'Beike_CN_Housing_Price'
         create_table_sql = """CREATE TABLE IF NOT EXISTS %s (
             Id int auto_increment,
             webName varchar(255),
@@ -147,16 +119,16 @@ class saveData():
         conn.close()
 
     def deleteOldData(self):
-        if self._config['savetype']['type'] == 'mysql':
-            self._delete_mysql()
-        elif self._config['savetype']['type'] == 'leancloud':
-            self._delete_leancloud()
+        # if self._config['savetype']['type'] == 'mysql':
+        self._delete_mysql()
+        # elif self._config['savetype']['type'] == 'leancloud':
+        #     self._delete_leancloud()
 
     def _saveData(self, *args):
-        if self._config['savetype']['type'] == 'mysql':
-            self._save_mysql(*args)
-        elif self._config['savetype']['type'] == 'leancloud':
-            self._save_leancloud(*args)
+        # if self._config['savetype']['type'] == 'mysql':
+        self._save_mysql(*args)
+        # elif self._config['savetype']['type'] == 'leancloud':
+        #     self._save_leancloud(*args)
 
     # 贝壳找房
     def beike_save(self, html):
