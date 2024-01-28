@@ -1,9 +1,11 @@
 # encoding:utf-8
 
-import configparser
+import pandas as pd
 import time
 import pymysql
 import warnings
+import logging
+from datetime import date
 from .beike import BeikeParser
 from .anjuke import AnjukeParser
 from .ganji import GanjiParser
@@ -20,7 +22,7 @@ class saveData():
         self._config = config
         self.key_password_dict = {}
         self._get_user_password()
-        pass
+        self.gemini_conn, self.gemini_cursor = self._get_db_cursor(database='Gemini')
 
     def _get_user_password(self):
         file_path = "/root/Software/Config/mysql_password.txt"
@@ -28,22 +30,35 @@ class saveData():
         for x in f:
             key_password_pair = x.strip().split(":")
             self.key_password_dict[key_password_pair[0]] = key_password_pair[1]
+        self.host = self.key_password_dict['host']
+        self.port = int(self.key_password_dict['port'])
+        self.user = self.key_password_dict['user']
+        self.passwd = self.key_password_dict['passwd']
+        print(f"self.host is {self.host}")
+        print(f"self.port is {self.port}")
+        print(f"self.user is {self.user}")
         return
+    
+    def _get_db_cursor(self, database):
+        conn = pymysql.connect(
+            host=self.host,
+            port=self.port,
+            user=self.user,
+            passwd=self.passwd,
+            db=database,
+            charset='utf8'
+            )
+        cursor = conn.cursor()
+        return conn, cursor
 
     # 清理mysql数据
-    def _delete_mysql(self):
+    def _delete_mysql(self, database):
         # 用于忽略表已存在的警告
         warnings.filterwarnings("ignore")
-        # host = self._config.get('mysql', 'host')
-        # port = self._config.getint('mysql', 'port')
-        # user = self._config.get('mysql', 'user')
-        # passwd = self._config.get('mysql', 'passwd')
-        # db = self._config.get('mysql', 'db')
         host = self.key_password_dict['host']
-        port = self.key_password_dict['port']
+        port = int(self.key_password_dict['port'])
         user = self.key_password_dict['user']
         passwd = self.key_password_dict['passwd']
-        database = self.key_password_dict['database']
 
         conn = pymysql.connect(host=host, port=port, user=user, passwd=passwd, db=database, charset='utf8')
         cursor = conn.cursor()
@@ -58,65 +73,67 @@ class saveData():
         conn.close()
 
     # 保存到mysql
-    def _save_mysql(self, webName, houseName, villageName, houseNote, houseTotlePrice, houseUnitPrice, houseLink,
-                    houseImg, followNum):
-        import pymysql
-        # 用于忽略表已存在的警告
-        import warnings
-        warnings.filterwarnings("ignore")
-        # host = self._config.get('mysql', 'host')
-        # port = self._config.getint('mysql', 'port')
-        # user = self._config.get('mysql', 'user')
-        # passwd = self._config.get('mysql', 'passwd')
-        # db = self._config.get('mysql', 'db')
-        host = self.key_password_dict['host']
-        port = self.key_password_dict['port']
-        user = self.key_password_dict['user']
-        passwd = self.key_password_dict['passwd']
-        database = self.key_password_dict['database']
+    def _save_mysql(
+            self,
+            db_conn,
+            db_cursor: pymysql.cursors.Cursor,
+            table_name,
+            data: pd.DataFrame,
+            primary_key_columns,
+            logger=logging.getLogger(),
+            ):
+        data_cols = data.columns.to_list()
+        not_primary_key_columns = [
+            x for x in data_cols if x not in primary_key_columns
+            ]
+        insert_sql = f"""
+            insert into {table_name}
+            (
+                {",".join(data_cols)}
+            )
+                values """
 
-        conn = pymysql.connect(host=host, port=port, user=user, passwd=passwd, db=database, charset='utf8')
-        cursor = conn.cursor()
+        for row_num, col_value in data.iterrows():
+            if row_num != 0:
+                insert_sql += ","
+            insert_sql += str(tuple(col_value.values.tolist()))
 
-        tablename = 'Beike_CN_Housing_Price'
-        create_table_sql = """CREATE TABLE IF NOT EXISTS %s (
-            Id int auto_increment,
-            webName varchar(255),
-            houseName varchar(255),
-            villageName varchar(255),
-            houseNote varchar(255),
-            houseTotlePrice varchar(255),
-            houseUnitPrice varchar(255),
-            houseLink varchar(255),
-            houseImg varchar(255),
-            followNum varchar(255),
-            primary key(Id)
+        insert_sql += 'AS new ON DUPLICATE KEY UPDATE '
+
+        max_column_number = len(not_primary_key_columns) - 1
+        for idx in range(len(not_primary_key_columns)):
+            not_primary_key = not_primary_key_columns[idx]
+            insert_sql += not_primary_key + "=" + f"new.{not_primary_key}"
+            if idx != max_column_number:
+                insert_sql += ','
+        db_cursor.execute(insert_sql)
+        db_conn.commit()
+        return
+
+    def _transfer_beike_saving_data(self, data_dict):
+        current_date = str(date.today())
+        res = pd.DataFrame(
+            {
+                'CalendarDate': current_date,
+                'webName': '贝壳',
+                'houseName': data_dict['houseName'],
+                'villageName': data_dict['villageName'],
+                'houseNote': data_dict['houseNote'],
+                'houseTotalPrice': data_dict['houseTotalPrice'],
+                'houseUnitPrice': data_dict['houseUnitPrice'],
+                'houseLink': data_dict['houseLink'],
+                'houseImg': data_dict['houseImg'],
+                'followNum': data_dict['followNum'],
+                'city': data_dict['city'],
+            }
         )
-        ENGINE=InnoDB DEFAULT CHARSET=utf8;""" % (tablename)
-        cursor.execute(create_table_sql)
-
-        insert_sql = """insert into %s (webName, houseName, villageName, houseNote, houseTotlePrice, houseUnitPrice, houseLink, houseImg, followNum) values """ % (
-            tablename)
-        for i in range(0, len(houseName)):
-            if i == 0:
-                insert_sql += """('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')""" % (
-                    webName, houseName[i], villageName[i], houseNote[i], houseTotlePrice[i], houseUnitPrice[i],
-                    houseLink[i], houseImg[i], followNum[i])
-            else:
-                insert_sql += """,('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')""" % (
-                    webName, houseName[i], villageName[i], houseNote[i], houseTotlePrice[i], houseUnitPrice[i],
-                    houseLink[i], houseImg[i], followNum[i])
-        insert_sql += """;"""
-        saved_rows = 0
-        if len(houseName) > 0:
-            try:
-                saved_rows = cursor.execute(insert_sql)
-            except:
-                print(insert_sql)
-        print(webName + ' saved ' + str(saved_rows) + ' rows.')
-        conn.commit()
-        cursor.close()
-        conn.close()
+        res['houseTotalPrice'] = res['houseTotalPrice'].apply(
+            lambda x: float(x[:-1]) * 10000
+            )
+        res['houseUnitPrice'] = res['houseUnitPrice'].apply(
+            lambda x: float(x[:-3].replace(',', ''))
+            )
+        return res
 
     def deleteOldData(self):
         # if self._config['savetype']['type'] == 'mysql':
@@ -124,17 +141,52 @@ class saveData():
         # elif self._config['savetype']['type'] == 'leancloud':
         #     self._delete_leancloud()
 
-    def _saveData(self, *args):
+    def _saveData(self, *args, **kwargs):
         # if self._config['savetype']['type'] == 'mysql':
-        self._save_mysql(*args)
+        self._save_mysql(*args, **kwargs)
         # elif self._config['savetype']['type'] == 'leancloud':
         #     self._save_leancloud(*args)
 
     # 贝壳找房
-    def beike_save(self, html):
-        beike = BeikeParser()
-        houseName, villageName, houseNote, houseTotlePrice, houseUnitPrice, houseLink, houseImg, followNum = beike.feed(html)
-        self._saveData('贝壳', houseName, villageName, houseNote, houseTotlePrice, houseUnitPrice, houseLink, houseImg, followNum)
+    def beike_save(self, html, first_page_url, table_name, primary_key):
+        beike = BeikeParser(
+            html_data=html,
+            first_page_url=first_page_url,
+        )
+        houseName, \
+            villageName, \
+            houseNote, \
+            houseTotalPrice, \
+            houseUnitPrice, \
+            houseLink, \
+            houseImg, \
+            followNum, \
+            city = beike.feed()
+        data_dict = {
+            'webName': '贝壳',
+            'houseName': houseName,
+            'villageName': villageName,
+            'houseTotalPrice': houseTotalPrice,
+            'houseUnitPrice': houseUnitPrice,
+            'houseLink': houseLink,
+            'houseImg': houseImg,
+            'houseName': houseName,
+            'followNum': followNum,
+            'houseNote': houseNote,
+            'city': city,
+        }
+        data_df = self._transfer_beike_saving_data(
+            data_dict=data_dict,
+        )
+        print('Finish Parsing HTML Data')
+        self._saveData(
+                db_conn=self.gemini_conn,
+                db_cursor=self.gemini_cursor,
+                table_name=table_name,
+                data=data_df,
+                primary_key_columns=primary_key,
+            )
+        print("Finish Saving Data")
 
     # 链家
     def lianjia_save(self, html):
